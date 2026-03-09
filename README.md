@@ -14,9 +14,12 @@ https://github.com/mikf/gallery-dl
     - If you don't have Python installed, download it from the [official Python website](https://www.python.org/downloads/).
     - Make sure to add it to your PATH
 
-3. Clone this repo. You can download it by clicking Code > Download Zip
+3. Download [gallery-dl](https://github.com/mikf/gallery-dl)
+    - Add it to your PATH
+
+4. Clone this repo. You can download it by clicking Code > Download Zip
     - Extract it where you want your archiver to live
-3. (OPTIONAL) Set up your venv
+5. (OPTIONAL) Set up your venv
     - Ensure you are in the directory of the parse.pyw
 ```cmd
 python -m venv venv
@@ -24,7 +27,7 @@ python -m venv venv
 ```
  You should see (venv) in your terminal now.
 
-5. Install requirements
+6. Install requirements
 ```
 pip install -r requirements.txt
 ```
