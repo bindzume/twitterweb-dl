@@ -5,8 +5,13 @@ from datetime import date, datetime, timedelta
 import subprocess
 from enum import Enum
 import argparse
-
+import urllib.request # <--- Add this line
+import sys
+import threading
+from queue import Queue, Empty
 GLOBAL_CREATE_WINDOW=True
+
+dash_a = 4
 
 class CONFTYPE(Enum):
     LIKES = 1
@@ -33,6 +38,69 @@ def parse_json_file(file_path):
             'quote_retweets':data.get('quote_count'),
             'quote_id': '\'' + str(data.get('quote_id', ''))
             }
+    
+def run_command_emergency(command, creationflags=0, max_strikes=2, inactivity_timeout=15):
+    # Start the process
+    process = subprocess.Popen(
+        command,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, # Merges errors into the standard output
+        text=True,
+        bufsize=1, # Line-buffered so we get text instantly
+        creationflags=creationflags
+    )
+
+    # --- BRAIN 1: The Reader ---
+    # This thread grabs text from gallery-dl and puts it in a bucket
+    def read_output(pipe, q):
+        for line in pipe:
+            q.put(line)
+        pipe.close()
+
+    output_queue = Queue()
+    reader_thread = threading.Thread(target=read_output, args=(process.stdout, output_queue))
+    reader_thread.daemon = True # Dies automatically when the script ends
+    reader_thread.start()
+
+    # --- BRAIN 2: The Watchdog ---
+    rate_limit_strikes = 0
+
+    while True:
+        # Check if the process finished naturally and the bucket is empty
+        if process.poll() is not None and output_queue.empty():
+            break
+
+        try:
+            # Wait for text, up to our inactivity limit
+            line = output_queue.get(timeout=inactivity_timeout)
+            
+            # Print the line to console
+            sys.stdout.write(line)
+            sys.stdout.flush()
+
+            # --- Check Condition 1: Rate Limit Strikes ---
+            if "Waiting until" in line and "(rate limit)" in line:
+                rate_limit_strikes += 1
+                if rate_limit_strikes >= max_strikes:
+                    print(f"\n\n[!] Detected {max_strikes} rate limit warnings in a row!")
+                    print("[!] gallery-dl is trapped. Force-killing the process...")
+                    process.terminate()
+                    break
+            else:
+                # If we got a normal line of text (like a successful download), reset strikes!
+                # (Optional, but good if it hits 1 rate limit, downloads 50 files, then hits another)
+                rate_limit_strikes = 0
+
+        except Empty:
+            # --- Check Condition 2: Inactivity Timeout ---
+            print(f"\n\n[!] gallery-dl has been frozen for {inactivity_timeout} seconds without output!")
+            print("[!] Force-killing the process and moving to the next step...")
+            process.terminate()
+            break
+
+    # Clean up the closed process
+    process.wait()
 
 def parse_folder(folder_path, output_csv):
     data_list = []
@@ -71,25 +139,25 @@ def parse_folder(folder_path, output_csv):
 def get_recent_timeline(folder_path, output_csv, qrt_output_csv, rt_output_csv, username, cookie_path, standard_conf_path, timeline_conf_path):
     # 1. Grab normal timeline (Tweets + Retweets)
     print(f"Syncing recent timeline (Tweets & RTs) for {username}...")
-    url_timeline = f"https://x.com/{username}"
-    command_timeline = f'gallery-dl.exe -A 10 -C "{cookie_path}" -c "{standard_conf_path}" "{url_timeline}"'
+    url_timeline = f"https://x.com/{username}/with_replies"
+    command_timeline = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{timeline_conf_path}" "{url_timeline}"'
     
     if GLOBAL_CREATE_WINDOW:
-        subprocess.run(command_timeline)
+        run_command_emergency(command_timeline)
     else:
         CREATE_NO_WINDOW = 0x08000000
-        subprocess.run(command_timeline, creationflags=CREATE_NO_WINDOW)
+        run_command_emergency(command_timeline, creationflags=CREATE_NO_WINDOW)
 
     # 2. Grab with_replies timeline (Replies)
-    print(f"Syncing recent replies for {username}...")
-    url_replies = f"https://x.com/{username}/with_replies"
-    command_replies = f'gallery-dl.exe -A 10 -C "{cookie_path}" -c "{timeline_conf_path}" "{url_replies}"'
+    #print(f"Syncing recent replies for {username}...")
+    #url_replies = f"https://x.com/{username}/with_replies"
+    #command_replies = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{timeline_conf_path}" "{url_replies}"'
     
-    if GLOBAL_CREATE_WINDOW:
-        subprocess.run(command_replies)
-    else:
-        CREATE_NO_WINDOW = 0x08000000
-        subprocess.run(command_replies, creationflags=CREATE_NO_WINDOW)
+    #if GLOBAL_CREATE_WINDOW:
+    #    run_command_emergency(command_replies)
+    #else:
+    #    CREATE_NO_WINDOW = 0x08000000
+    #    run_command_emergency(command_replies, creationflags=CREATE_NO_WINDOW)
 
     # 3. Parse everything identically to get_unfound_tweets
     print(f"Parsing downloaded files into CSVs for {username}...")
@@ -174,7 +242,7 @@ def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path)
             f.write(f"https://x.com/i/status/{rid}\n")
 
     # 4. Call gallery-dl using the -i (input file) command
-    command = f'gallery-dl.exe -A 10 -C "{cookie_path}" -c "{replies_conf_path}" -i "{urls_file}"'
+    command = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{replies_conf_path}" -i "{urls_file}"'
     print(f"Downloading {len(new_reply_ids)} new replied-to tweets into the replies folder...")
     
     if GLOBAL_CREATE_WINDOW:
@@ -204,7 +272,7 @@ def get_likes(username, cookie_path, gallery_dl_path):
         with open(conf_file_path, 'w') as f:
             f.write(conf_template)
     
-    command = f'gallery-dl.exe -A 10 -C "{cookie_path}" -c "{conf_file_path}" --dest "{gallery_dl_path}" "https://x.com/{username}/likes"'
+    command = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{conf_file_path}" --dest "{gallery_dl_path}" "https://x.com/{username}/likes"'
     print(command)
     subprocess.run(command)
 
@@ -237,19 +305,19 @@ def get_unfound_tweets(folder_path, output_csv, gallery_dl_path, username, cooki
     end_date = until_date if until_date else (date.today() + timedelta(days=2)).strftime("%Y-%m-%d")
 
     # The updated command using oldest_date and end_date
-    command = f'gallery-dl.exe -A 10 -C "{cookie_path}" -c "{conf_path}" --dest "{gallery_dl_path}" "https://twitter.com/search?q=(from%3A{username})%20until%3A{end_date}%20since%3A{oldest_date}&src=typed_query&f=live"'
+    command = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{conf_path}" --dest "{gallery_dl_path}" "https://twitter.com/search?q=(from%3A{username})%20until%3A{end_date}%20since%3A{oldest_date}&src=typed_query&f=live"'
     print(command)
 
     if(GLOBAL_CREATE_WINDOW):
         #since we are scraping the advanced search page, we have to scrape the retweets separately since they don't show up in the search results.
         subprocess.run(command)
         #for retweets
-        command = f'gallery-dl.exe -A 11 -C "{cookie_path}" -c "{retweet_conf_file_path}" --dest "{gallery_dl_path}" "https://twitter.com/{username}"'
+        command = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{retweet_conf_file_path}" --dest "{gallery_dl_path}" "https://twitter.com/{username}"'
         subprocess.run(command)
     else:
         CREATE_NO_WINDOW = 0x08000000
         subprocess.run(command, creationflags=CREATE_NO_WINDOW)
-        command = f'gallery-dl.exe -A 11 -C "{cookie_path}" -c "{retweet_conf_file_path}" --dest "{gallery_dl_path}" "https://twitter.com/{username}"'
+        command = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{retweet_conf_file_path}" --dest "{gallery_dl_path}" "https://twitter.com/{username}"'
         subprocess.run(command, creationflags=CREATE_NO_WINDOW)
 
    
@@ -260,6 +328,72 @@ def get_unfound_tweets(folder_path, output_csv, gallery_dl_path, username, cooki
         print("found it")
         parse_folder(os.path.join(folder_path, 'retweets'), rt_output_csv)
 
+def update_profile_info(folder_path, username):
+    print(f"Checking for profile updates for {username}...")
+    
+    # 1. Find the most recently modified .json file in the folder
+    json_files = [f for f in os.listdir(folder_path) if f.endswith('.json')]
+    if not json_files:
+        return # No JSONs downloaded yet
+        
+    latest_json = max(json_files, key=lambda x: os.path.getmtime(os.path.join(folder_path, x)))
+    
+    avatar_url = None
+    banner_url = None
+    
+    try:
+        with open(os.path.join(folder_path, latest_json), 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            # Prioritize 'user' (the timeline owner) over 'author'
+            user_data = data.get('user', data.get('author', {}))
+            avatar_url = user_data.get('profile_image')
+            banner_url = user_data.get('profile_banner')
+    except Exception as e:
+        print(f"Error reading JSON for profile info: {e}")
+        return
+
+    profile_dir = os.path.join(folder_path, "profile-info")
+    os.makedirs(profile_dir, exist_ok=True)
+    
+    # Helper function to download images with a fake Browser User-Agent
+    def download_image(url, save_path):
+        req = urllib.request.Request(
+            url, 
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0'}
+        )
+        with urllib.request.urlopen(req) as response, open(save_path, 'wb') as out_file:
+            out_file.write(response.read())
+
+    # 4. Check and Download Avatar
+    if avatar_url:
+        avatar_id = avatar_url.split('/')[-1]
+        avatar_filename = f"avatar_{avatar_id}"
+        avatar_path = os.path.join(profile_dir, avatar_filename)
+        
+        if not os.path.exists(avatar_path):
+            print(f"New profile picture detected! Saving {avatar_filename}...")
+            try:
+                download_image(avatar_url, avatar_path)
+            except Exception as e:
+                print(f"Failed to download avatar: {e}")
+                
+    # 5. Check and Download Banner
+    if banner_url:
+        banner_id = banner_url.split('/')[-1]
+        banner_filename = f"banner_{banner_id}.jpg"
+        banner_path = os.path.join(profile_dir, banner_filename)
+        
+        if not os.path.exists(banner_path):
+            print(f"New profile banner detected! Saving {banner_filename}...")
+            try:
+                # Twitter banners usually need the size appended
+                download_image(banner_url + "/1500x500", banner_path)
+            except Exception as e:
+                try:
+                    # Fallback to the base URL
+                    download_image(banner_url, banner_path)
+                except Exception as fallback_e:
+                    print(f"Failed to download banner: {fallback_e}")
 
 def save_user(username, cookie_path, gallery_dl_path, since_date=None, until_date=None, fetch_replies=False):
     conf_file_path = os.path.join(gallery_dl_path, "twitter", username, "gallery-dl-"+username+".conf")
@@ -331,6 +465,9 @@ def save_user(username, cookie_path, gallery_dl_path, since_date=None, until_dat
     if fetch_replies:
         print("Fetching replied-to tweets...")
         get_replied_to_tweets(json_path, username, cookie_path, replies_conf_file_path)
+
+    update_profile_info(json_path, username)
+
 if __name__ == "__main__":
     # Set up the argument parser
     parser = argparse.ArgumentParser(description="Archive Twitter/X profiles and likes using gallery-dl.")

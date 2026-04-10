@@ -5,17 +5,35 @@
         "postprocessors": null,
         "skip": true,
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0",
-        "retries": 4,
-        "timeout": 30,
+        "retries": 1,
+        "timeout": 10,
+        "fallback": true,
+        "sleep": [0.5, 1.5],
+        "sleep-request": [1, 3],
+        "sleep-extractor": 0,
         "verify": true,
         "twitter": {
             "text-tweets": true,
             "quoted": true,
-            "retweets": false,
-            "replies": true,
+            "retweets": true,
             "filter": "author['name'].lower() == '{VAR_USERNAME}'.lower()",
             "filename": "twitter_({VAR_USERNAME})_{date}_{tweet_id}-{num}.{extension}",
             "directory": {
+                "quote_id   != 0": [
+                    "twitter",
+                    "{quote_by}",
+                    "quote-retweets"
+                ],
+                "retweet_id != 0": [
+                    "twitter",
+                    "{VAR_USERNAME}",
+                    "retweets"
+                ],
+                "author['name'].lower() != '{VAR_USERNAME}'.lower()": [
+                    "twitter",
+                    "{VAR_USERNAME}",
+                    "replies"
+                ],
                 "": [
                     "twitter",
                     "{VAR_USERNAME}"
@@ -31,15 +49,44 @@
         }
     },
     "downloader": {
+        "filesize-min": null,
+        "filesize-max": null,
         "mtime": true,
         "part": true,
+        "part-directory": null,
         "progress": 3,
-        "retries": 4
+        "rate": null,
+        "retries": 4,
+        "timeout": 30,
+        "verify": true,
+        "http": {
+            "adjust-extensions": true,
+            "chunk-size": 32768,
+            "headers": null,
+            "validate": true
+        },
+        "ytdl": {
+            "format": null,
+            "forward-cookies": false,
+            "logging": true,
+            "module": null,
+            "outtmpl": null,
+            "raw-options": null
+        }
     },
     "output": {
         "mode": "auto",
         "progress": true,
         "shorten": true,
-        "skip": true
-    }
+        "ansi": false,
+        "colors": {
+            "success": "1;32",
+            "skip": "2"
+        },
+        "skip": true,
+        "log": "[{name}][{levelname}] {message}",
+        "logfile": null,
+        "unsupportedfile": null
+    },
+    "netrc": false
 }

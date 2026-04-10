@@ -79,9 +79,10 @@ If you do choose a date range, it will use the twitter search feature. Otherwise
 ## Additional Notes:
 - Rate limits in the [advanced search](https://x.com/search?q=(from%3Aibxtoycat)%20until%3A2026-03-10%20since%3A2026-02-19&src=typed_query&f=live) are pretty strict. So if you get heavily rate-limited, might wanna come back the next day to try again.
 
-- Sadly, accounts that are search banned will have middling success. But at least you get something
+- Sadly, accounts that are search banned won't be scrapeable beyond 3200 tweets since you physically can't see those tweets anymore. Also date range doesn't work for those. but oh well at least you get something.
 
 ## To Do:
+- get PFP and banners. if they are unchanged whatever but if they change then save
 - Ensure compatibility with linux and osx
 - frontend (wip)
 - run the parse stage independently so user can rebuild or parse if the tool was terminated prematurely
