@@ -13,6 +13,7 @@ class CONFTYPE(Enum):
     RETWEETS = 2
     TWEETS = 3
     REPLIES = 4
+    TIMELINE = 5 # <--- Added this
 
 def parse_json_file(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
@@ -67,6 +68,40 @@ def parse_folder(folder_path, output_csv):
     df = pd.DataFrame(new_data_list)
     df.to_csv(output_csv, index=False)
 
+def get_recent_timeline(folder_path, output_csv, qrt_output_csv, rt_output_csv, username, cookie_path, standard_conf_path, timeline_conf_path):
+    # 1. Grab normal timeline (Tweets + Retweets)
+    print(f"Syncing recent timeline (Tweets & RTs) for {username}...")
+    url_timeline = f"https://x.com/{username}"
+    command_timeline = f'gallery-dl.exe -A 10 -C "{cookie_path}" -c "{standard_conf_path}" "{url_timeline}"'
+    
+    if GLOBAL_CREATE_WINDOW:
+        subprocess.run(command_timeline)
+    else:
+        CREATE_NO_WINDOW = 0x08000000
+        subprocess.run(command_timeline, creationflags=CREATE_NO_WINDOW)
+
+    # 2. Grab with_replies timeline (Replies)
+    print(f"Syncing recent replies for {username}...")
+    url_replies = f"https://x.com/{username}/with_replies"
+    command_replies = f'gallery-dl.exe -A 10 -C "{cookie_path}" -c "{timeline_conf_path}" "{url_replies}"'
+    
+    if GLOBAL_CREATE_WINDOW:
+        subprocess.run(command_replies)
+    else:
+        CREATE_NO_WINDOW = 0x08000000
+        subprocess.run(command_replies, creationflags=CREATE_NO_WINDOW)
+
+    # 3. Parse everything identically to get_unfound_tweets
+    print(f"Parsing downloaded files into CSVs for {username}...")
+    parse_folder(folder_path, output_csv)
+    
+    if os.path.exists(os.path.join(folder_path, 'quote-retweets')):
+        parse_folder(os.path.join(folder_path, 'quote-retweets'), qrt_output_csv)
+        
+    if os.path.exists(os.path.join(folder_path, 'retweets')):
+        print("found it")
+        parse_folder(os.path.join(folder_path, 'retweets'), rt_output_csv)
+
 def get_conf_template(conf_type, username, base_path):
     json_string = ''
     if(conf_type == CONFTYPE.LIKES):
@@ -81,6 +116,9 @@ def get_conf_template(conf_type, username, base_path):
             json_string = f.read()
     elif(conf_type == CONFTYPE.REPLIES): # <--- Added this block
         with open('conf-template-replies.json') as f:
+            json_string = f.read()
+    elif(conf_type == CONFTYPE.TIMELINE): # <--- Added this block
+        with open('conf-template-timeline.json') as f:
             json_string = f.read()
     else:
         raise ValueError("You passed the wrong conf type somewhere")
@@ -100,7 +138,8 @@ def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path)
                     data = json.load(f)
                     reply_id = data.get('reply_id', 0)
                     if reply_id != 0:
-                        reply_ids.add(reply_id)
+                        # Store as string for easy comparison
+                        reply_ids.add(str(reply_id)) 
             except Exception as e:
                 print(f"Error parsing {filename}: {e}")
 
@@ -108,16 +147,35 @@ def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path)
         print("No replies found to download.")
         return
 
-    # 2. Save IDs as URLs to a text file for gallery-dl to read
+    # 2. Check the existing replies CSV to filter out what we already have
+    replies_csv = os.path.join(folder_path, "replies_output.csv")
+    existing_reply_ids = set()
+    
+    if os.path.exists(replies_csv):
+        try:
+            df_existing = pd.read_csv(replies_csv)
+            # The IDs in the CSV start with a single quote (e.g., "'12345"). 
+            # We strip the quote out so it matches our raw JSON reply_ids.
+            existing_reply_ids = set(df_existing['id'].astype(str).str.replace("'", ""))
+        except Exception as e:
+            print(f"Error reading {replies_csv}: {e}")
+
+    # Subtract the already downloaded IDs from the total IDs we found
+    new_reply_ids = reply_ids - existing_reply_ids
+
+    if not new_reply_ids:
+        print("All replied-to tweets have already been downloaded! Skipping gallery-dl.")
+        return
+
+    # 3. Save only the NEW IDs as URLs to a text file for gallery-dl to read
     urls_file = os.path.join(folder_path, "replies_to_fetch.txt")
     with open(urls_file, "w") as f:
-        for rid in reply_ids:
-            # Using i/status/ routes directly to the tweet regardless of the author's username
+        for rid in new_reply_ids:
             f.write(f"https://x.com/i/status/{rid}\n")
 
-    # 3. Call gallery-dl using the -i (input file) command
+    # 4. Call gallery-dl using the -i (input file) command
     command = f'gallery-dl.exe -A 10 -C "{cookie_path}" -c "{replies_conf_path}" -i "{urls_file}"'
-    print(f"Downloading {len(reply_ids)} replied-to tweets into the replies folder...")
+    print(f"Downloading {len(new_reply_ids)} new replied-to tweets into the replies folder...")
     
     if GLOBAL_CREATE_WINDOW:
         subprocess.run(command)
@@ -125,10 +183,10 @@ def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path)
         CREATE_NO_WINDOW = 0x08000000
         subprocess.run(command, creationflags=CREATE_NO_WINDOW)
         
-    # Optional: Parse the replies folder into a CSV
+    # 5. Parse the replies folder into a CSV
     replies_dir = os.path.join(folder_path, "replies")
     if os.path.exists(replies_dir):
-        parse_folder(replies_dir, os.path.join(folder_path, "replies_output.csv"))
+        parse_folder(replies_dir, replies_csv)
 
 # gets your twitter likes. only works for your own account obviously
 def get_likes(username, cookie_path, gallery_dl_path):
@@ -207,6 +265,7 @@ def save_user(username, cookie_path, gallery_dl_path, since_date=None, until_dat
     conf_file_path = os.path.join(gallery_dl_path, "twitter", username, "gallery-dl-"+username+".conf")
     retweet_conf_file_path = os.path.join(gallery_dl_path, "twitter", username, "gallery-dl-"+username+"_retweet.conf")
     replies_conf_file_path = os.path.join(gallery_dl_path, "twitter", username, "gallery-dl-"+username+"_replies.conf") # <--- Added
+    timeline_conf_file_path = os.path.join(gallery_dl_path, "twitter", username, "gallery-dl-"+username+"_timeline.conf") # <--- Added
 
     json_path= os.path.join(gallery_dl_path, "twitter", username)
     output_csv_path= os.path.join(gallery_dl_path, "twitter", username, "output.csv")
@@ -232,6 +291,13 @@ def save_user(username, cookie_path, gallery_dl_path, since_date=None, until_dat
         with open(replies_conf_file_path, 'w') as f:
             f.write(replies_conf_template)
 
+
+    # <--- Generate Timeline config
+    if(not os.path.exists(timeline_conf_file_path)):
+        timeline_conf_template = get_conf_template(CONFTYPE.TIMELINE, username, gallery_dl_path)
+        with open(timeline_conf_file_path, 'w') as f:
+            f.write(timeline_conf_template)
+
     
     """ if(not os.path.exists(output_csv_path)):
         data = ["a"]
@@ -252,7 +318,14 @@ def save_user(username, cookie_path, gallery_dl_path, since_date=None, until_dat
             writer.writerow(data)
      """
 
-    get_unfound_tweets(json_path, output_csv_path, gallery_dl_path, username, cookie_path, conf_file_path, retweet_conf_file_path, qrt_output_csv, rt_output_csv, since_date, until_date)
+# <--- The Hybrid Branch
+    if since_date or until_date:
+        print(f"Dates provided. Running Deep Archive via Search API...")
+        get_unfound_tweets(json_path, output_csv_path, gallery_dl_path, username, cookie_path, conf_file_path, retweet_conf_file_path, qrt_output_csv, rt_output_csv, since_date, until_date)
+    else:
+        print(f"No dates provided. Running Fast Sync via Timeline...")
+        # Passing folder_path (json_path), output_csv, qrt_output_csv, and rt_output_csv
+        get_recent_timeline(json_path, output_csv_path, qrt_output_csv, rt_output_csv, username, cookie_path, conf_file_path, timeline_conf_file_path)
 
     # <--- Added fetch replies trigger
     if fetch_replies:

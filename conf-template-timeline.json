@@ -1,0 +1,45 @@
+{
+    "extractor": {
+        "base-directory": "{VAR_BASE_DIRECTORY}",
+        "parent-directory": false,
+        "postprocessors": null,
+        "skip": true,
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0",
+        "retries": 4,
+        "timeout": 30,
+        "verify": true,
+        "twitter": {
+            "text-tweets": true,
+            "quoted": true,
+            "retweets": false,
+            "replies": true,
+            "filter": "author['name'].lower() == '{VAR_USERNAME}'.lower()",
+            "filename": "twitter_({VAR_USERNAME})_{date}_{tweet_id}-{num}.{extension}",
+            "directory": {
+                "": [
+                    "twitter",
+                    "{VAR_USERNAME}"
+                ]
+            },
+            "postprocessors": [
+                {
+                    "name": "metadata",
+                    "event": "post",
+                    "filename": "twitter_({VAR_USERNAME})_{date}_{tweet_id}_main.json"
+                }
+            ]
+        }
+    },
+    "downloader": {
+        "mtime": true,
+        "part": true,
+        "progress": 3,
+        "retries": 4
+    },
+    "output": {
+        "mode": "auto",
+        "progress": true,
+        "shorten": true,
+        "skip": true
+    }
+}

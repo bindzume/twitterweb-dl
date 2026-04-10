@@ -73,6 +73,8 @@ QRTs (the tweet that was quoted) and retweets (the tweet that was retweeted) are
 
 Replies (tweets that were replied to) are stored in the replies folder. replies_output.csv contains all those tweets
 
+If you do choose a date range, it will use the twitter search feature. Otherwise it will use the timeline. KEEP IN MIND when you don't use the twitter search feature, you can only get 3200 tweets max for the account. So for accounts under 3200 tweets, feel free to not specify a date. If they have more, you should set the "since" date to be when the first tweet was (or when the account was created i guess). 
+
 
 ## Additional Notes:
 - Rate limits in the [advanced search](https://x.com/search?q=(from%3Aibxtoycat)%20until%3A2026-03-10%20since%3A2026-02-19&src=typed_query&f=live) are pretty strict. So if you get heavily rate-limited, might wanna come back the next day to try again.
@@ -81,5 +83,5 @@ Replies (tweets that were replied to) are stored in the replies folder. replies_
 
 ## To Do:
 - Ensure compatibility with linux and osx
-- frontend
+- frontend (wip)
 - run the parse stage independently so user can rebuild or parse if the tool was terminated prematurely
