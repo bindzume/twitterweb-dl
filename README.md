@@ -58,8 +58,9 @@ options:
   -c COOKIE, --cookie COOKIE
                         Path to your x.com_cookies.txt file (default: current dir)
   -d DEST, --dest DEST  Destination path for gallery-dl (default: current dir)
-  -t, --tweets          Download the user's tweets and retweets (Default if neither is specified)
+  -t, --tweets          Download the user's tweets and retweets (Default if neither is specified)  
   -l, --likes           Download the user's likes
+  -r, --replies         Also download the original tweets the user replied to
   -s SINCE, --since SINCE
                         Start date in YYYY-MM-DD format (e.g., 2020-05-01)
   -e UNTIL, --until UNTIL
@@ -68,12 +69,17 @@ options:
 
 Within your selected director, tweets are archived in a subdirectory called twitter\username\ (both .json files with tweets and the media)
 
-QRTs and retweets are also saved in their own folders.
+QRTs (the tweet that was quoted) and retweets (the tweet that was retweeted) are also saved in their own folders. These tweets are also stored in rt_output.csv and qrt_output.csv
+
+Replies (tweets that were replied to) are stored in the replies folder. replies_output.csv contains all those tweets
 
 
 ## Additional Notes:
 - Rate limits in the [advanced search](https://x.com/search?q=(from%3Aibxtoycat)%20until%3A2026-03-10%20since%3A2026-02-19&src=typed_query&f=live) are pretty strict. So if you get heavily rate-limited, might wanna come back the next day to try again.
 
+- Sadly, accounts that are search banned will have middling success. But at least you get something
+
 ## To Do:
 - Ensure compatibility with linux and osx
 - frontend
+- run the parse stage independently so user can rebuild or parse if the tool was terminated prematurely

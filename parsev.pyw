@@ -3,7 +3,6 @@ import json
 import pandas as pd
 from datetime import date, datetime, timedelta
 import subprocess
-import csv
 from enum import Enum
 import argparse
 
@@ -13,6 +12,7 @@ class CONFTYPE(Enum):
     LIKES = 1
     RETWEETS = 2
     TWEETS = 3
+    REPLIES = 4
 
 def parse_json_file(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
@@ -79,10 +79,56 @@ def get_conf_template(conf_type, username, base_path):
     elif(conf_type == CONFTYPE.TWEETS):
         with open('conf-template-tweets.json') as f:
             json_string = f.read()
+    elif(conf_type == CONFTYPE.REPLIES): # <--- Added this block
+        with open('conf-template-replies.json') as f:
+            json_string = f.read()
     else:
         raise ValueError("You passed the wrong conf type somewhere")
     
     return json_string.replace("{VAR_USERNAME}", username).replace("{VAR_BASE_DIRECTORY}", base_path.replace("\\", "\\\\"))
+
+
+def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path):
+    reply_ids = set()
+    
+    # 1. Scan the main folder for JSONs and grab the reply_ids
+    for filename in os.listdir(folder_path):
+        if filename.endswith('.json'):
+            file_path = os.path.join(folder_path, filename)
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    reply_id = data.get('reply_id', 0)
+                    if reply_id != 0:
+                        reply_ids.add(reply_id)
+            except Exception as e:
+                print(f"Error parsing {filename}: {e}")
+
+    if not reply_ids:
+        print("No replies found to download.")
+        return
+
+    # 2. Save IDs as URLs to a text file for gallery-dl to read
+    urls_file = os.path.join(folder_path, "replies_to_fetch.txt")
+    with open(urls_file, "w") as f:
+        for rid in reply_ids:
+            # Using i/status/ routes directly to the tweet regardless of the author's username
+            f.write(f"https://x.com/i/status/{rid}\n")
+
+    # 3. Call gallery-dl using the -i (input file) command
+    command = f'gallery-dl.exe -A 10 -C "{cookie_path}" -c "{replies_conf_path}" -i "{urls_file}"'
+    print(f"Downloading {len(reply_ids)} replied-to tweets into the replies folder...")
+    
+    if GLOBAL_CREATE_WINDOW:
+        subprocess.run(command)
+    else:
+        CREATE_NO_WINDOW = 0x08000000
+        subprocess.run(command, creationflags=CREATE_NO_WINDOW)
+        
+    # Optional: Parse the replies folder into a CSV
+    replies_dir = os.path.join(folder_path, "replies")
+    if os.path.exists(replies_dir):
+        parse_folder(replies_dir, os.path.join(folder_path, "replies_output.csv"))
 
 # gets your twitter likes. only works for your own account obviously
 def get_likes(username, cookie_path, gallery_dl_path):
@@ -157,9 +203,11 @@ def get_unfound_tweets(folder_path, output_csv, gallery_dl_path, username, cooki
         parse_folder(os.path.join(folder_path, 'retweets'), rt_output_csv)
 
 
-def save_user(username, cookie_path, gallery_dl_path, since_date=None, until_date=None):
+def save_user(username, cookie_path, gallery_dl_path, since_date=None, until_date=None, fetch_replies=False):
     conf_file_path = os.path.join(gallery_dl_path, "twitter", username, "gallery-dl-"+username+".conf")
     retweet_conf_file_path = os.path.join(gallery_dl_path, "twitter", username, "gallery-dl-"+username+"_retweet.conf")
+    replies_conf_file_path = os.path.join(gallery_dl_path, "twitter", username, "gallery-dl-"+username+"_replies.conf") # <--- Added
+
     json_path= os.path.join(gallery_dl_path, "twitter", username)
     output_csv_path= os.path.join(gallery_dl_path, "twitter", username, "output.csv")
     qrt_output_csv = os.path.join(gallery_dl_path, "twitter", username, "qrt_output.csv")
@@ -177,6 +225,12 @@ def save_user(username, cookie_path, gallery_dl_path, since_date=None, until_dat
         retweet_conf_template = get_conf_template(CONFTYPE.RETWEETS, username, gallery_dl_path)
         with open(retweet_conf_file_path, 'w') as f:
             f.write(retweet_conf_template)
+
+    # <--- Added Replies Config Generation
+    if(not os.path.exists(replies_conf_file_path)):
+        replies_conf_template = get_conf_template(CONFTYPE.REPLIES, username, gallery_dl_path)
+        with open(replies_conf_file_path, 'w') as f:
+            f.write(replies_conf_template)
 
     
     """ if(not os.path.exists(output_csv_path)):
@@ -200,6 +254,10 @@ def save_user(username, cookie_path, gallery_dl_path, since_date=None, until_dat
 
     get_unfound_tweets(json_path, output_csv_path, gallery_dl_path, username, cookie_path, conf_file_path, retweet_conf_file_path, qrt_output_csv, rt_output_csv, since_date, until_date)
 
+    # <--- Added fetch replies trigger
+    if fetch_replies:
+        print("Fetching replied-to tweets...")
+        get_replied_to_tweets(json_path, username, cookie_path, replies_conf_file_path)
 if __name__ == "__main__":
     # Set up the argument parser
     parser = argparse.ArgumentParser(description="Archive Twitter/X profiles and likes using gallery-dl.")
@@ -215,6 +273,9 @@ if __name__ == "__main__":
     parser.add_argument("-t", "--tweets", action="store_true", help="Download the user's tweets and retweets (Default if neither is specified)")
     parser.add_argument("-l", "--likes", action="store_true", help="Download the user's likes")
 
+    # <--- Add this argument so the user can toggle it
+    parser.add_argument("-r", "--replies", action="store_true", help="Also download the original tweets the user replied to")
+
     # Date range arguments
     parser.add_argument("-s", "--since", help="Start date in YYYY-MM-DD format (e.g., 2020-05-01)")
     parser.add_argument("-e", "--until", help="End date in YYYY-MM-DD format (e.g., 2023-12-31)")
@@ -229,7 +290,7 @@ if __name__ == "__main__":
     if args.tweets:
         print("Starting tweets download...")
         # Pass the new date arguments into save_user
-        save_user(args.username, args.cookie, args.dest, args.since, args.until)
+        save_user(args.username, args.cookie, args.dest, args.since, args.until, args.replies)
         
     if args.likes:
         print("Starting likes download...")
