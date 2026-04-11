@@ -158,10 +158,14 @@ def parse_folder(folder_path, output_csv, reply_map=None):
     df.to_csv(output_csv, index=False)
 
 def get_recent_timeline(folder_path, output_csv, qrt_output_csv, rt_output_csv, username, cookie_path, standard_conf_path, timeline_conf_path, dash_a=4):
+    # If dash_a is 0, the flag becomes completely empty. 
+    # Otherwise, it becomes "-A 4" (or whatever number they typed).
+    abort_flag = "" if dash_a == 0 else f"-A {dash_a}"
+        
     # 1. Grab normal timeline (Tweets + Retweets)
     print(f"Syncing recent timeline (Tweets & RTs) for {username}...")
     url_timeline = f"https://x.com/{username}/with_replies"
-    command_timeline = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{timeline_conf_path}" "{url_timeline}"'
+    command_timeline = f'gallery-dl.exe {abort_flag} -C "{cookie_path}" -c "{timeline_conf_path}" "{url_timeline}"'
     
     if GLOBAL_CREATE_WINDOW:
         run_command_emergency(command_timeline)
@@ -172,7 +176,7 @@ def get_recent_timeline(folder_path, output_csv, qrt_output_csv, rt_output_csv, 
     # 2. Grab with_replies timeline (Replies)
     #print(f"Syncing recent replies for {username}...")
     #url_replies = f"https://x.com/{username}/with_replies"
-    #command_replies = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{timeline_conf_path}" "{url_replies}"'
+    #command_replies = f'gallery-dl.exe {abort_flag} -C "{cookie_path}" -c "{timeline_conf_path}" "{url_replies}"'
     
     #if GLOBAL_CREATE_WINDOW:
     #    run_command_emergency(command_replies)
@@ -216,6 +220,11 @@ def get_conf_template(conf_type, username, base_path):
 
 
 def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path, dash_a=4):
+
+    # If dash_a is 0, the flag becomes completely empty. 
+    # Otherwise, it becomes "-A 4" (or whatever number they typed).
+    abort_flag = "" if dash_a == 0 else f"-A {dash_a}"
+
     # Dictionary to map parent tweet IDs to the target user's reply IDs
     reply_map = {} 
     
@@ -266,7 +275,7 @@ def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path,
                 f.write(f"https://x.com/i/status/{rid}\n")
 
         # 4. Call gallery-dl using the -i (input file) command
-        command = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{replies_conf_path}" -i "{urls_file}"'
+        command = f'gallery-dl.exe {abort_flag} -C "{cookie_path}" -c "{replies_conf_path}" -i "{urls_file}"'
         print(f"Downloading {len(new_reply_ids)} new replied-to tweets into the replies folder...")
         
         if GLOBAL_CREATE_WINDOW:
@@ -296,7 +305,8 @@ def get_likes(username, cookie_path, gallery_dl_path, dash_a=4):
         with open(conf_file_path, 'w') as f:
             f.write(conf_template)
     
-    command = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{conf_file_path}" --dest "{gallery_dl_path}" "https://x.com/{username}/likes"'
+    abort_flag = "" if dash_a == 0 else f"-A {dash_a}"
+    command = f'gallery-dl.exe {abort_flag} -C "{cookie_path}" -c "{conf_file_path}" --dest "{gallery_dl_path}" "https://x.com/{username}/likes"'
     print(command)
     run_command_emergency(command)
 
@@ -328,20 +338,21 @@ def get_unfound_tweets(folder_path, output_csv, gallery_dl_path, username, cooki
     # Set the end date (custom --until date, or default to 2 days in the future)
     end_date = until_date if until_date else (date.today() + timedelta(days=2)).strftime("%Y-%m-%d")
 
+    abort_flag = "" if dash_a == 0 else f"-A {dash_a}"
     # The updated command using oldest_date and end_date
-    command = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{conf_path}" --dest "{gallery_dl_path}" "https://twitter.com/search?q=(from%3A{username})%20until%3A{end_date}%20since%3A{oldest_date}&src=typed_query&f=live"'
+    command = f'gallery-dl.exe {abort_flag} -C "{cookie_path}" -c "{conf_path}" --dest "{gallery_dl_path}" "https://twitter.com/search?q=(from%3A{username})%20until%3A{end_date}%20since%3A{oldest_date}&src=typed_query&f=live"'
     print(command)
 
     if(GLOBAL_CREATE_WINDOW):
         #since we are scraping the advanced search page, we have to scrape the retweets separately since they don't show up in the search results.
         run_command_emergency(command)
         #for retweets
-        command = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{retweet_conf_file_path}" --dest "{gallery_dl_path}" "https://twitter.com/{username}"'
+        command = f'gallery-dl.exe {abort_flag} -C "{cookie_path}" -c "{retweet_conf_file_path}" --dest "{gallery_dl_path}" "https://twitter.com/{username}"'
         run_command_emergency(command)
     else:
         CREATE_NO_WINDOW = 0x08000000
         run_command_emergency(command, creationflags=CREATE_NO_WINDOW)
-        command = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{retweet_conf_file_path}" --dest "{gallery_dl_path}" "https://twitter.com/{username}"'
+        command = f'gallery-dl.exe {abort_flag} -C "{cookie_path}" -c "{retweet_conf_file_path}" --dest "{gallery_dl_path}" "https://twitter.com/{username}"'
         run_command_emergency(command, creationflags=CREATE_NO_WINDOW)
 
    
@@ -515,7 +526,7 @@ if __name__ == "__main__":
     # Date range arguments
     parser.add_argument("-s", "--since", help="Start date in YYYY-MM-DD format (e.g., 2020-05-01)")
     parser.add_argument("-e", "--until", help="End date in YYYY-MM-DD format (e.g., 2023-12-31)")
-    parser.add_argument("-a", "--dupes", default=4, help="Amount of duplicates to encounter before terminating gallery-dl. Default is 4 strikes. Set to 0 for infinite strikes.")
+    parser.add_argument("-a", "--dupes", type=int, default=4, help="Amount of duplicates to encounter before terminating gallery-dl. Default is 4 strikes. Set to 0 for infinite strikes.")
 
     
     args = parser.parse_args()
