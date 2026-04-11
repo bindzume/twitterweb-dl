@@ -51,7 +51,8 @@ def parse_json_file(file_path):
             'replies': data.get('reply_count'),
             'retweets': data.get('retweet_count'),
             'quote_retweets':data.get('quote_count'),
-            'quote_id': '\'' + str(data.get('quote_id', ''))
+            'quote_id': '\'' + str(data.get('quote_id', '')),
+            'parent_tweet_id': '\'' + str(data.get('reply_id', '')) if data.get('reply_id') else ''
             }
     
 def run_command_emergency(command, creationflags=0, max_strikes=2, inactivity_timeout=15):
@@ -118,37 +119,42 @@ def run_command_emergency(command, creationflags=0, max_strikes=2, inactivity_ti
 
     process.wait()
 
-def parse_folder(folder_path, output_csv):
+def parse_folder(folder_path, output_csv, reply_map=None):
     data_list = []
-    data_dict = dict()
+    found_tweets = []
     print('done')
     
     if os.path.exists(output_csv):
         existing_df = pd.read_csv(output_csv)
         data_list.extend(existing_df.to_dict('records'))
         
-        
     for filename in os.listdir(folder_path):
         if filename.endswith('json'):
             file_path = os.path.join(folder_path, filename)
             parsed_data = parse_json_file(file_path)
+            
+            # --- NEW MAP INJECTION ---
+            if reply_map is not None:
+                # Strip the quote mark we add for Excel to match raw IDs
+                raw_parent_id = parsed_data['id'].replace("'", "")
+                linked_child = reply_map.get(raw_parent_id, "")
+                parsed_data['user_reply_id'] = f"'{linked_child}" if linked_child else ""
+
             data_list.append(parsed_data)
 
     print('done1')
     data_list.reverse()
     dupe_tweets = []
-    found_tweets = []
     new_data_list = []
-    #print(data_list[0]['id'])
+    
     for d in data_list:
-        if(d['id'] in found_tweets):
+        if d['id'] in found_tweets:
             dupe_tweets.append(d['id'])
         else:
             found_tweets.append(d['id'])
             new_data_list.append(d)
     
     print('done2')
-    #data_list = [dict(t) for t in {tuple(d.items()) for d in data_list}]    
     df = pd.DataFrame(new_data_list)
     df.to_csv(output_csv, index=False)
 
@@ -211,9 +217,10 @@ def get_conf_template(conf_type, username, base_path):
 
 
 def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path):
-    reply_ids = set()
+    # Dictionary to map parent tweet IDs to the target user's reply IDs
+    reply_map = {} 
     
-    # 1. Scan the main folder for JSONs and grab the reply_ids
+    # 1. Scan the main folder for JSONs and build the reply map
     for filename in os.listdir(folder_path):
         if filename.endswith('.json'):
             file_path = os.path.join(folder_path, filename)
@@ -221,11 +228,14 @@ def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path)
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     reply_id = data.get('reply_id', 0)
+                    tweet_id = data.get('tweet_id', 0)
                     if reply_id != 0:
-                        # Store as string for easy comparison
-                        reply_ids.add(str(reply_id)) 
+                        # Map: Parent ID -> Target User's Reply ID
+                        reply_map[str(reply_id)] = str(tweet_id) 
             except Exception as e:
                 print(f"Error parsing {filename}: {e}")
+
+    reply_ids = set(reply_map.keys())
 
     if not reply_ids:
         print("No replies found to download.")
@@ -238,8 +248,6 @@ def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path)
     if os.path.exists(replies_csv):
         try:
             df_existing = pd.read_csv(replies_csv)
-            # The IDs in the CSV start with a single quote (e.g., "'12345"). 
-            # We strip the quote out so it matches our raw JSON reply_ids.
             existing_reply_ids = set(df_existing['id'].astype(str).str.replace("'", ""))
         except Exception as e:
             print(f"Error reading {replies_csv}: {e}")
@@ -249,28 +257,29 @@ def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path)
 
     if not new_reply_ids:
         print("All replied-to tweets have already been downloaded! Skipping gallery-dl.")
-        return
-
-    # 3. Save only the NEW IDs as URLs to a text file for gallery-dl to read
-    urls_file = os.path.join(folder_path, "replies_to_fetch.txt")
-    with open(urls_file, "w") as f:
-        for rid in new_reply_ids:
-            f.write(f"https://x.com/i/status/{rid}\n")
-
-    # 4. Call gallery-dl using the -i (input file) command
-    command = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{replies_conf_path}" -i "{urls_file}"'
-    print(f"Downloading {len(new_reply_ids)} new replied-to tweets into the replies folder...")
-    
-    if GLOBAL_CREATE_WINDOW:
-        subprocess.run(command)
+        # Even if we skip downloading, we should still parse in case new JSONs 
+        # were added manually or the CSV got deleted/needs updating with the map!
     else:
-        CREATE_NO_WINDOW = 0x08000000
-        subprocess.run(command, creationflags=CREATE_NO_WINDOW)
+        # 3. Save only the NEW IDs as URLs to a text file for gallery-dl to read
+        urls_file = os.path.join(folder_path, "replies_to_fetch.txt")
+        with open(urls_file, "w") as f:
+            for rid in new_reply_ids:
+                f.write(f"https://x.com/i/status/{rid}\n")
+
+        # 4. Call gallery-dl using the -i (input file) command
+        command = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{replies_conf_path}" -i "{urls_file}"'
+        print(f"Downloading {len(new_reply_ids)} new replied-to tweets into the replies folder...")
         
-    # 5. Parse the replies folder into a CSV
+        if GLOBAL_CREATE_WINDOW:
+            subprocess.run(command)
+        else:
+            CREATE_NO_WINDOW = 0x08000000
+            subprocess.run(command, creationflags=CREATE_NO_WINDOW)
+            
+    # 5. Parse the replies folder into a CSV (Pass the map we built!)
     replies_dir = os.path.join(folder_path, "replies")
     if os.path.exists(replies_dir):
-        parse_folder(replies_dir, replies_csv)
+        parse_folder(replies_dir, replies_csv, reply_map=reply_map)
 
 # gets your twitter likes. only works for your own account obviously
 def get_likes(username, cookie_path, gallery_dl_path):
