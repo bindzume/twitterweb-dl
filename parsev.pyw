@@ -13,6 +13,21 @@ GLOBAL_CREATE_WINDOW=True
 
 dash_a = 4
 
+class DualLogger:
+    def __init__(self, filepath):
+        self.terminal = sys.stdout
+        self.log_file = open(filepath, "a", encoding="utf-8")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log_file.write(message)
+
+    def flush(self):
+        self.terminal.flush()
+        self.log_file.flush()
+
+
+
 class CONFTYPE(Enum):
     LIKES = 1
     RETWEETS = 2
@@ -40,19 +55,16 @@ def parse_json_file(file_path):
             }
     
 def run_command_emergency(command, creationflags=0, max_strikes=2, inactivity_timeout=15):
-    # Start the process
     process = subprocess.Popen(
         command,
         shell=True,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, # Merges errors into the standard output
+        stderr=subprocess.STDOUT, 
         text=True,
-        bufsize=1, # Line-buffered so we get text instantly
+        bufsize=1, 
         creationflags=creationflags
     )
 
-    # --- BRAIN 1: The Reader ---
-    # This thread grabs text from gallery-dl and puts it in a bucket
     def read_output(pipe, q):
         for line in pipe:
             q.put(line)
@@ -60,46 +72,50 @@ def run_command_emergency(command, creationflags=0, max_strikes=2, inactivity_ti
 
     output_queue = Queue()
     reader_thread = threading.Thread(target=read_output, args=(process.stdout, output_queue))
-    reader_thread.daemon = True # Dies automatically when the script ends
+    reader_thread.daemon = True 
     reader_thread.start()
 
     # --- BRAIN 2: The Watchdog ---
     rate_limit_strikes = 0
+    current_timeout = inactivity_timeout 
 
     while True:
-        # Check if the process finished naturally and the bucket is empty
         if process.poll() is not None and output_queue.empty():
             break
 
         try:
-            # Wait for text, up to our inactivity limit
-            line = output_queue.get(timeout=inactivity_timeout)
+            # timeout=None means it will wait forever. timeout=15 means it watches for freezes.
+            line = output_queue.get(timeout=current_timeout)
             
-            # Print the line to console
             sys.stdout.write(line)
             sys.stdout.flush()
 
             # --- Check Condition 1: Rate Limit Strikes ---
             if "Waiting until" in line and "(rate limit)" in line:
                 rate_limit_strikes += 1
+                
                 if rate_limit_strikes >= max_strikes:
                     print(f"\n\n[!] Detected {max_strikes} rate limit warnings in a row!")
                     print("[!] gallery-dl is trapped. Force-killing the process...")
                     process.terminate()
                     break
+                else:
+                    # SUCCESS: Suspend the watchdog.
+                    print("\n[*] Rate limit pause detected. Disabling the freeze watchdog until it wakes up...")
+                    current_timeout = None # <--- Turns off the inactivity timer!
             else:
-                # If we got a normal line of text (like a successful download), reset strikes!
-                # (Optional, but good if it hits 1 rate limit, downloads 50 files, then hits another)
+                # Normal download text! Reset strikes and re-enable the 15-second watchdog
                 rate_limit_strikes = 0
+                current_timeout = inactivity_timeout
 
         except Empty:
             # --- Check Condition 2: Inactivity Timeout ---
+            # This will ONLY trigger if current_timeout was a number (like 15) and time ran out
             print(f"\n\n[!] gallery-dl has been frozen for {inactivity_timeout} seconds without output!")
             print("[!] Force-killing the process and moving to the next step...")
             process.terminate()
             break
 
-    # Clean up the closed process
     process.wait()
 
 def parse_folder(folder_path, output_csv):
@@ -495,6 +511,21 @@ if __name__ == "__main__":
     if not args.tweets and not args.likes:
         args.tweets = True
 
+    # --- LOGGING SETUP ---
+    # 1. Create the 'logs' folder if it doesn't exist yet
+    os.makedirs(os.path.join(args.dest, "twitter", args.username, "logs"), exist_ok=True)
+
+    # 2. Generate an iterating filename using a timestamp (e.g., log_20231024_153022.txt)
+    # Timestamps are better than counting (log_1, log_2) because they never collide!
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_filename = os.path.join(args.dest, "twitter", args.username, "logs", f"run_{timestamp}.log")
+
+    # 3. Hijack Python's output to use our DualLogger
+    sys.stdout = DualLogger(log_filename)
+    sys.stderr = sys.stdout # Routes any core Python crash errors into the log too!
+
+    print(f"[*] Logging initialized. Saving copy of output to: {log_filename}")
+    print("-" * 50)
     print(f"Archiving data for: {args.username}")
     
     if args.tweets:
