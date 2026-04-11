@@ -11,7 +11,6 @@ import threading
 from queue import Queue, Empty
 GLOBAL_CREATE_WINDOW=True
 
-dash_a = 4
 
 class DualLogger:
     def __init__(self, filepath):
@@ -158,7 +157,7 @@ def parse_folder(folder_path, output_csv, reply_map=None):
     df = pd.DataFrame(new_data_list)
     df.to_csv(output_csv, index=False)
 
-def get_recent_timeline(folder_path, output_csv, qrt_output_csv, rt_output_csv, username, cookie_path, standard_conf_path, timeline_conf_path):
+def get_recent_timeline(folder_path, output_csv, qrt_output_csv, rt_output_csv, username, cookie_path, standard_conf_path, timeline_conf_path, dash_a=4):
     # 1. Grab normal timeline (Tweets + Retweets)
     print(f"Syncing recent timeline (Tweets & RTs) for {username}...")
     url_timeline = f"https://x.com/{username}/with_replies"
@@ -216,7 +215,7 @@ def get_conf_template(conf_type, username, base_path):
     return json_string.replace("{VAR_USERNAME}", username).replace("{VAR_BASE_DIRECTORY}", base_path.replace("\\", "\\\\"))
 
 
-def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path):
+def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path, dash_a=4):
     # Dictionary to map parent tweet IDs to the target user's reply IDs
     reply_map = {} 
     
@@ -271,10 +270,10 @@ def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path)
         print(f"Downloading {len(new_reply_ids)} new replied-to tweets into the replies folder...")
         
         if GLOBAL_CREATE_WINDOW:
-            subprocess.run(command)
+            run_command_emergency(command)
         else:
             CREATE_NO_WINDOW = 0x08000000
-            subprocess.run(command, creationflags=CREATE_NO_WINDOW)
+            run_command_emergency(command, creationflags=CREATE_NO_WINDOW)
             
     # 5. Parse the replies folder into a CSV (Pass the map we built!)
     replies_dir = os.path.join(folder_path, "replies")
@@ -282,7 +281,7 @@ def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path)
         parse_folder(replies_dir, replies_csv, reply_map=reply_map)
 
 # gets your twitter likes. only works for your own account obviously
-def get_likes(username, cookie_path, gallery_dl_path):
+def get_likes(username, cookie_path, gallery_dl_path, dash_a=4):
     
     conf_file_path = os.path.join(gallery_dl_path, "twitter", username, "gallery-dl-"+username+".conf")
     folder_path= os.path.join(gallery_dl_path, "twitter", username)
@@ -299,7 +298,7 @@ def get_likes(username, cookie_path, gallery_dl_path):
     
     command = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{conf_file_path}" --dest "{gallery_dl_path}" "https://x.com/{username}/likes"'
     print(command)
-    subprocess.run(command)
+    run_command_emergency(command)
 
     parse_folder(folder_path, output_csv)
 
@@ -309,7 +308,7 @@ def get_likes(username, cookie_path, gallery_dl_path):
 # In the retweets folder, all tweets that the user retweeted and their associated media is stored
 # In the quote-retweets folder, all tweets that the user quote-tweeted are stored (not what they said. that is in regular tweets folder).
 # In the qrt_output.csv, there is a quote_id that links to the user you are archiving's tweet. 
-def get_unfound_tweets(folder_path, output_csv, gallery_dl_path, username, cookie_path, conf_path, retweet_conf_file_path, qrt_output_csv, rt_output_csv, since_date=None, until_date=None):
+def get_unfound_tweets(folder_path, output_csv, gallery_dl_path, username, cookie_path, conf_path, retweet_conf_file_path, qrt_output_csv, rt_output_csv, since_date=None, until_date=None, dash_a=4):
     
     # Use the provided since_date, OR default to 2006 if they didn't provide one
     oldest_date = since_date if since_date else '2006-03-21'
@@ -335,15 +334,15 @@ def get_unfound_tweets(folder_path, output_csv, gallery_dl_path, username, cooki
 
     if(GLOBAL_CREATE_WINDOW):
         #since we are scraping the advanced search page, we have to scrape the retweets separately since they don't show up in the search results.
-        subprocess.run(command)
+        run_command_emergency(command)
         #for retweets
         command = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{retweet_conf_file_path}" --dest "{gallery_dl_path}" "https://twitter.com/{username}"'
-        subprocess.run(command)
+        run_command_emergency(command)
     else:
         CREATE_NO_WINDOW = 0x08000000
-        subprocess.run(command, creationflags=CREATE_NO_WINDOW)
+        run_command_emergency(command, creationflags=CREATE_NO_WINDOW)
         command = f'gallery-dl.exe -A {dash_a} -C "{cookie_path}" -c "{retweet_conf_file_path}" --dest "{gallery_dl_path}" "https://twitter.com/{username}"'
-        subprocess.run(command, creationflags=CREATE_NO_WINDOW)
+        run_command_emergency(command, creationflags=CREATE_NO_WINDOW)
 
    
     parse_folder(folder_path, output_csv)
@@ -420,7 +419,7 @@ def update_profile_info(folder_path, username):
                 except Exception as fallback_e:
                     print(f"Failed to download banner: {fallback_e}")
 
-def save_user(username, cookie_path, gallery_dl_path, since_date=None, until_date=None, fetch_replies=False):
+def save_user(username, cookie_path, gallery_dl_path, since_date=None, until_date=None, fetch_replies=False, dupes=4):
     conf_file_path = os.path.join(gallery_dl_path, "twitter", username, "gallery-dl-"+username+".conf")
     retweet_conf_file_path = os.path.join(gallery_dl_path, "twitter", username, "gallery-dl-"+username+"_retweet.conf")
     replies_conf_file_path = os.path.join(gallery_dl_path, "twitter", username, "gallery-dl-"+username+"_replies.conf") # <--- Added
@@ -480,18 +479,20 @@ def save_user(username, cookie_path, gallery_dl_path, since_date=None, until_dat
 # <--- The Hybrid Branch
     if since_date or until_date:
         print(f"Dates provided. Running Deep Archive via Search API...")
-        get_unfound_tweets(json_path, output_csv_path, gallery_dl_path, username, cookie_path, conf_file_path, retweet_conf_file_path, qrt_output_csv, rt_output_csv, since_date, until_date)
+        get_unfound_tweets(json_path, output_csv_path, gallery_dl_path, username, cookie_path, conf_file_path, retweet_conf_file_path, qrt_output_csv, rt_output_csv, since_date, until_date, dupes)
     else:
         print(f"No dates provided. Running Fast Sync via Timeline...")
         # Passing folder_path (json_path), output_csv, qrt_output_csv, and rt_output_csv
-        get_recent_timeline(json_path, output_csv_path, qrt_output_csv, rt_output_csv, username, cookie_path, conf_file_path, timeline_conf_file_path)
+        get_recent_timeline(json_path, output_csv_path, qrt_output_csv, rt_output_csv, username, cookie_path, conf_file_path, timeline_conf_file_path, dupes)
 
     # <--- Added fetch replies trigger
     if fetch_replies:
         print("Fetching replied-to tweets...")
-        get_replied_to_tweets(json_path, username, cookie_path, replies_conf_file_path)
+        get_replied_to_tweets(json_path, username, cookie_path, replies_conf_file_path, dupes)
 
     update_profile_info(json_path, username)
+
+    print("Finished archiving user!")
 
 if __name__ == "__main__":
     # Set up the argument parser
@@ -514,8 +515,11 @@ if __name__ == "__main__":
     # Date range arguments
     parser.add_argument("-s", "--since", help="Start date in YYYY-MM-DD format (e.g., 2020-05-01)")
     parser.add_argument("-e", "--until", help="End date in YYYY-MM-DD format (e.g., 2023-12-31)")
+    parser.add_argument("-a", "--dupes", default=4, help="Amount of duplicates to encounter before terminating gallery-dl. Default is 4 strikes. Set to 0 for infinite strikes.")
 
+    
     args = parser.parse_args()
+    
 
     if not args.tweets and not args.likes:
         args.tweets = True
@@ -540,8 +544,8 @@ if __name__ == "__main__":
     if args.tweets:
         print("Starting tweets download...")
         # Pass the new date arguments into save_user
-        save_user(args.username, args.cookie, args.dest, args.since, args.until, args.replies)
+        save_user(args.username, args.cookie, args.dest, args.since, args.until, args.replies, args.dupes)
         
     if args.likes:
         print("Starting likes download...")
-        get_likes(args.username, args.cookie, args.dest)
+        get_likes(args.username, args.cookie, args.dest, args.dupes)
