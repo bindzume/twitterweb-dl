@@ -3,7 +3,7 @@
         "base-directory": "{VAR_BASE_DIRECTORY}",
         "parent-directory": false,
         "postprocessors": null,
-        "archive": null,
+        "archive": "twitter/{VAR_USERNAME}/archive_tweets.sqlite3",
         "cookies": null,
         "cookies-update": true,
         "proxy": null,
@@ -54,6 +54,11 @@
                     "name": "metadata",
                     "event": "post",
                     "filename": "twitter_({VAR_USERNAME})_{date}_{tweet_id}_main.json"
+                },
+                {
+                    "name": "exec",
+                    "event": "post",
+                    "command": "echo [gallery-dl] Saved text/metadata for tweet {tweet_id}"
                 }
             ]
         }

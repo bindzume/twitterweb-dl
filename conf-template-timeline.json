@@ -6,6 +6,7 @@
         "skip": true,
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0",
         "retries": 1,
+        "archive": "twitter/{VAR_USERNAME}/archive_tweets.sqlite3",
         "timeout": 10,
         "fallback": true,
         "sleep": [0.5, 1.5],
@@ -44,6 +45,11 @@
                     "name": "metadata",
                     "event": "post",
                     "filename": "twitter_({VAR_USERNAME})_{date}_{tweet_id}_main.json"
+                },
+                {
+                    "name": "exec",
+                    "event": "post",
+                    "command": "echo [gallery-dl] Saved text/metadata for tweet {tweet_id}"
                 }
             ]
         }

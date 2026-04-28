@@ -3,7 +3,7 @@
         "base-directory": "{VAR_BASE_DIRECTORY}",
         "parent-directory": false,
         "postprocessors": null,
-        "archive": null,
+        "archive": "twitter/{VAR_USERNAME}/archive_likes.sqlite3",
         "cookies": null,
         "cookies-update": true,
         "proxy": null,
@@ -35,18 +35,10 @@
             "replies": true,
             "filename": "twitter_({VAR_USERNAME})_{date}_{tweet_id}-{num}.{extension}",
             "directory": {
-                "quote_id   != 0": [
-                    "twitter",
-                    "{VAR_USERNAME}"
-                ],
-                "retweet_id != 0": [
-                    "twitter",
-                    "{VAR_USERNAME}",
-                    "retweets"
-                ],
                 "": [
                     "twitter",
-                    "{VAR_USERNAME}"
+                    "{VAR_USERNAME}",
+                    "likes"
                 ]
             },
             "postprocessors": [
@@ -54,6 +46,11 @@
                     "name": "metadata",
                     "event": "post",
                     "filename": "twitter_({VAR_USERNAME})_{date}_{tweet_id}_main.json"
+                },
+                {
+                    "name": "exec",
+                    "event": "post",
+                    "command": "echo [gallery-dl] Saved text/metadata for tweet {tweet_id}"
                 }
             ]
         }

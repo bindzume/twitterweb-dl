@@ -165,7 +165,7 @@ def get_recent_timeline(folder_path, output_csv, qrt_output_csv, rt_output_csv, 
     # 1. Grab normal timeline (Tweets + Retweets)
     print(f"Syncing recent timeline (Tweets & RTs) for {username}...")
     url_timeline = f"https://x.com/{username}/with_replies"
-    command_timeline = f'gallery-dl.exe {abort_flag} -C "{cookie_path}" -c "{timeline_conf_path}" "{url_timeline}"'
+    command_timeline = f'gallery-dl {abort_flag} -C "{cookie_path}" -c "{timeline_conf_path}" "{url_timeline}"'
     
     if GLOBAL_CREATE_WINDOW:
         run_command_emergency(command_timeline)
@@ -176,7 +176,7 @@ def get_recent_timeline(folder_path, output_csv, qrt_output_csv, rt_output_csv, 
     # 2. Grab with_replies timeline (Replies)
     #print(f"Syncing recent replies for {username}...")
     #url_replies = f"https://x.com/{username}/with_replies"
-    #command_replies = f'gallery-dl.exe {abort_flag} -C "{cookie_path}" -c "{timeline_conf_path}" "{url_replies}"'
+    #command_replies = f'gallery-dl {abort_flag} -C "{cookie_path}" -c "{timeline_conf_path}" "{url_replies}"'
     
     #if GLOBAL_CREATE_WINDOW:
     #    run_command_emergency(command_replies)
@@ -275,7 +275,7 @@ def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path,
                 f.write(f"https://x.com/i/status/{rid}\n")
 
         # 4. Call gallery-dl using the -i (input file) command
-        command = f'gallery-dl.exe {abort_flag} -C "{cookie_path}" -c "{replies_conf_path}" -i "{urls_file}"'
+        command = f'gallery-dl {abort_flag} -C "{cookie_path}" -c "{replies_conf_path}" -i "{urls_file}"'
         print(f"Downloading {len(new_reply_ids)} new replied-to tweets into the replies folder...")
         
         if GLOBAL_CREATE_WINDOW:
@@ -292,15 +292,19 @@ def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path,
 # gets your twitter likes. only works for your own account obviously
 def get_likes(username, cookie_path, gallery_dl_path, dash_a=4):
     
-    conf_file_path = os.path.join(gallery_dl_path, "twitter", username, "gallery-dl-"+username+".conf")
-    folder_path= os.path.join(gallery_dl_path, "twitter", username)
-    output_csv= os.path.join(gallery_dl_path, "twitter", username, "output.csv")
-    conf_file_path = os.path.join(gallery_dl_path, "twitter", username, "gallery-dl-"+ username +".conf")
+    # CHANGE 1: Give the likes config file a unique name so it doesn't overwrite your timeline config
+    conf_file_path = os.path.join(gallery_dl_path, "twitter", username, f"gallery-dl-{username}_likes.conf")
+    
+    # CHANGE 2: Point the folder_path specifically to the "likes" subdirectory
+    folder_path = os.path.join(gallery_dl_path, "twitter", username, "likes")
+    
+    # CHANGE 3: Rename the output CSV
+    output_csv = os.path.join(gallery_dl_path, "twitter", username, "output_likes.csv")
 
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
 
-    if(not os.path.exists(conf_file_path)):
+    if not os.path.exists(conf_file_path):
         conf_template = get_conf_template(CONFTYPE.LIKES, username, gallery_dl_path)
         with open(conf_file_path, 'w') as f:
             f.write(conf_template)
@@ -310,6 +314,8 @@ def get_likes(username, cookie_path, gallery_dl_path, dash_a=4):
     print(command)
     run_command_emergency(command)
 
+    # Because we updated folder_path and output_csv above, this will now only 
+    # parse the likes JSONs and save them to output_likes.csv!
     parse_folder(folder_path, output_csv)
 
 #Makes a folder for your user in your "gallery_dl_path"
@@ -340,19 +346,19 @@ def get_unfound_tweets(folder_path, output_csv, gallery_dl_path, username, cooki
 
     abort_flag = "" if dash_a == 0 else f"-A {dash_a}"
     # The updated command using oldest_date and end_date
-    command = f'gallery-dl.exe {abort_flag} -C "{cookie_path}" -c "{conf_path}" --dest "{gallery_dl_path}" "https://twitter.com/search?q=(from%3A{username})%20until%3A{end_date}%20since%3A{oldest_date}&src=typed_query&f=live"'
+    command = f'gallery-dl {abort_flag} -C "{cookie_path}" -c "{conf_path}" --dest "{gallery_dl_path}" "https://twitter.com/search?q=(from%3A{username})%20until%3A{end_date}%20since%3A{oldest_date}&src=typed_query&f=live"'
     print(command)
 
     if(GLOBAL_CREATE_WINDOW):
         #since we are scraping the advanced search page, we have to scrape the retweets separately since they don't show up in the search results.
         run_command_emergency(command)
         #for retweets
-        command = f'gallery-dl.exe {abort_flag} -C "{cookie_path}" -c "{retweet_conf_file_path}" --dest "{gallery_dl_path}" "https://twitter.com/{username}"'
+        command = f'gallery-dl {abort_flag} -C "{cookie_path}" -c "{retweet_conf_file_path}" --dest "{gallery_dl_path}" "https://twitter.com/{username}"'
         run_command_emergency(command)
     else:
         CREATE_NO_WINDOW = 0x08000000
         run_command_emergency(command, creationflags=CREATE_NO_WINDOW)
-        command = f'gallery-dl.exe {abort_flag} -C "{cookie_path}" -c "{retweet_conf_file_path}" --dest "{gallery_dl_path}" "https://twitter.com/{username}"'
+        command = f'gallery-dl {abort_flag} -C "{cookie_path}" -c "{retweet_conf_file_path}" --dest "{gallery_dl_path}" "https://twitter.com/{username}"'
         run_command_emergency(command, creationflags=CREATE_NO_WINDOW)
 
    
