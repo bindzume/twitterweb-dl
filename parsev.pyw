@@ -292,14 +292,12 @@ def get_replied_to_tweets(folder_path, username, cookie_path, replies_conf_path,
 # gets your twitter likes. only works for your own account obviously
 def get_likes(username, cookie_path, gallery_dl_path, dash_a=4):
     
-    # CHANGE 1: Give the likes config file a unique name so it doesn't overwrite your timeline config
     conf_file_path = os.path.join(gallery_dl_path, "twitter", username, f"gallery-dl-{username}_likes.conf")
-    
-    # CHANGE 2: Point the folder_path specifically to the "likes" subdirectory
     folder_path = os.path.join(gallery_dl_path, "twitter", username, "likes")
-    
-    # CHANGE 3: Rename the output CSV
     output_csv = os.path.join(gallery_dl_path, "twitter", username, "output_likes.csv")
+    
+    # ADDED: New CSV path for the quoted tweets
+    quote_likes_csv = os.path.join(gallery_dl_path, "twitter", username, "quote_likes.csv")
 
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
@@ -314,9 +312,13 @@ def get_likes(username, cookie_path, gallery_dl_path, dash_a=4):
     print(command)
     run_command_emergency(command)
 
-    # Because we updated folder_path and output_csv above, this will now only 
-    # parse the likes JSONs and save them to output_likes.csv!
+    # 1. Parse the main likes folder
     parse_folder(folder_path, output_csv)
+    
+    # 2. ADDED: Check if the quote-tweets subfolder was created, and parse it!
+    quotes_folder = os.path.join(folder_path, "quote-tweets")
+    if os.path.exists(quotes_folder):
+        parse_folder(quotes_folder, quote_likes_csv)
 
 #Makes a folder for your user in your "gallery_dl_path"
 # In that folder, all tweet .jsons and all media is stored
